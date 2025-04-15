@@ -1,18 +1,18 @@
 import os
 import docx
-from typing import List, Any, Optional, Tuple, Dict
-from transformers import pipeline
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
-from scripts.utils import convert_docx_to_pdf
 import json
-import ast
+import re
+from typing import List, Optional
+from transformers import pipeline, AutoModelForCausalLM, AutoTokenizer
+import torch
 
 class TableGenerator:
-    def __init__(self, model_path:str):
-        self.model = AutoModelForCausalLM.from_pretrained(model_path,
-                                                          device_map="cuda" if torch.cuda.is_available() else "cpu",
-                                                          torch_dtype=torch.float16)
+    def __init__(self, model_path: str):
+        self.model = AutoModelForCausalLM.from_pretrained(
+            model_path,
+            device_map="cuda" if torch.cuda.is_available() else "cpu",
+            torch_dtype=torch.float16
+        )
         self.tokenizer = AutoTokenizer.from_pretrained(model_path)
 
         self.pipe = pipeline(
@@ -21,221 +21,132 @@ class TableGenerator:
             task="text-generation",
             device_map="cuda" if torch.cuda.is_available() else "cpu",
             torch_dtype=torch.float16,
-            # max_length=98304,
-                             )
+        )
         
-        self.SYSTEM_PROMPT = "You are a helpful assistant that generates tables based on the provided prompt. " \
-            "You will receive a prompt and you need to generate a table in text format. " \
-            "The table should be well-structured and easy to read. " \
-            "Please ensure that the table is formatted correctly and includes all necessary information. " \
-            "Adhere to the following guidelines: " \
-            "Respond with only the table content in a JSON array format, no explanation or markdown."
-
-
-    def generate_table_content(self, prompt: str, max_new_tokens:int = 98304,
+        self.SYSTEM_PROMPT = """You are a helpful assistant that generates tables based on the provided prompt.
+You will receive a prompt and you need to generate a table in text format.
+Return ONLY a valid JSON array of arrays like: [[value1, value2, ...], [value1, value2, ...], ...]
+Each inner array represents one row of data.
+Do not include any explanation, markdown formatting, or code blocks."""
+        
+    def generate_table_content(self, prompt: str, max_new_tokens: int = 2048,
                             row_headers: Optional[List[str]] = None,
                             column_headers: Optional[List[str]] = None,
                             num_rows: int = 5,
-                            num_cols: int = 3) -> str:
+                            num_cols: int = 3) -> List[List[str]]:
         
         rows = len(row_headers) if row_headers else num_rows
         cols = len(column_headers) if column_headers else num_cols
-        system_prompt = (
-            "You are a helpful assistant that generates content for tables based on headers and description. "
-            "Respond with only the table content in a JSON array format, no explanation or markdown."
-        )
-        messages = [
-            # {"role": "system", "content": self.SYSTEM_PROMPT},
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Generate content for a table with the following description: {prompt}\n\n" \
-             "Adhere to these points strictly:\n" \
-                "1. Generate a table with appropriate headers and content.\n" \
-                "2. Only generate content for given headers.\n" \
-                "3. If no headers are provided, generate a table with appropriate headers.\n" \
-                "4. If headers are given, generate content for those headers only.\n"}
-        ]
-
-        message = f"Generate content for a table with the following description: {prompt}\n\n"        
-
+        
+        # Create a simplified, explicit prompt
+        message = f"Generate content for a table about: {prompt}\n\n"
+        
         if row_headers and column_headers:
-            message += f"Row headers: {row_headers}\nColumn headers: {column_headers}\n"
-            message += "Generate a table with these exact row and column headers."
-        elif row_headers:
-            message += f"Row headers: {row_headers}\n"
-            message += f"Generate {cols} columns of appropriate content."
-        elif column_headers:
-            message += f"Column headers: {column_headers}\n"
-            message += f"Generate {rows} rows of appropriate content."
+            message += f"Row headers: {', '.join(row_headers)}\n"
+            message += f"Column headers: {', '.join(column_headers)}\n"
+            message += "Generate exactly one value for each cell in the table.\n"
         else:
-            message += f"Generate a {rows}x{cols} table with appropriate headers and content."
-        
-        message += "\nReturn the result as a 2D array in JSON format." \
-            "\nMake sure we are only creating rows for given column header nothing outside of it.\n" \
-
-        response = self.pipe(messages, max_new_tokens=max_new_tokens)
-
-        content = response[0]['generated_text'][-1]['content']
-
-        # mannual cleaning cause other one didn't worked
-        cleaned_content = content.strip()
-        if cleaned_content.startswith('```') and cleaned_content.endswith('```'):
-            cleaned_content = cleaned_content[3:-3].strip()
-        elif cleaned_content.startswith('`') and cleaned_content.endswith('`'):
-            cleaned_content = cleaned_content[1:-1].strip()
-
-        # Didn't worked
-        # table_data = ast.literal_eval(content.strip('`').strip())
-        # table_data = json.loads(table_data)
-        try:
-            try:
-                table_data = json.loads(cleaned_content)
-                return table_data
-            except json.JSONDecodeError:
-                pass
-
-            try:
-                table_data = ast.literal_eval(cleaned_content)
-                # If it's a string (might be a JSON string), try parsing it again
-                if isinstance(table_data, str):
-                    table_data = json.loads(table_data)
-                return table_data
-            except (ValueError, SyntaxError):
-                pass
-
-            if cleaned_content.startswith('[') and cleaned_content.endswith(']'):
-                # Replace newlines with spaces in a way that preserves JSON structure
-                cleaned_json = cleaned_content.replace('\n', ' ')
-                try:
-                    table_data = json.loads(cleaned_json)
-                    return table_data
-                except json.JSONDecodeError:
-                    pass
-
-            print("JSON parsing attempts fail. Attempting mannual extraction.")
-
-            if cleaned_content.startswith('[') and cleaned_content.endswith(']'):
-                # Split into rows by detecting array patterns
-                rows = []
-                current_row = []
-                in_quotes = False
-                row_buffer = ""
-                
-                for char in cleaned_content[1:-1]:  # Skip the outer brackets
-                    if char == '"':
-                        in_quotes = not in_quotes
-                        row_buffer += char
-                    elif char == ',' and not in_quotes:
-                        if row_buffer.strip():
-                            current_row.append(row_buffer.strip())
-                        row_buffer = ""
-                    elif char == '[' and not in_quotes and not row_buffer.strip():
-                        # New row starting
-                        if current_row:
-                            rows.append(current_row)
-                        current_row = []
-                    elif char == ']' and not in_quotes:
-                        # Row ending
-                        if row_buffer.strip():
-                            current_row.append(row_buffer.strip())
-                            row_buffer = ""
-                    else:
-                        row_buffer += char
-                        
-                if current_row:
-                    rows.append(current_row)
-                    
-                if rows:
-                    return rows
-            
-            # If all else fails, construct a basic table from the text
-            lines = cleaned_content.split('\n')
-            rows = []
-            for line in lines:
-                if line.strip():
-                    rows.append([line.strip()])
-            
-            return rows if rows else [["Failed to parse table data"]]
-        
-        
-        except Exception as e:
-            print("Failed to parse JSON response, returning text")
-            return [["Error parsing table data: " + str(e)]]
-        
-    def generate_table(self, prompt: str,
-                       row_headers:Optional[List[str]]=None,
-                       column_headers:Optional[List[str]]=None) -> List[List[str]]:
-        """
-        Generate a complete table including headers.
-        
-        Args:
-            prompt (str): Description of the table content
-            row_headers (List[str], optional): Row headers
-            column_headers (List[str], optional): Column headers
-            
-        Returns:
-            List[List[str]]: Complete table with headers
-        """
-
-        if not row_headers and not column_headers:
-            # Ask the model to generate appropriate headers
-            system_prompt = "Generate appropriate row and column headers for the described table."
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Generate row and column headers for a table about: {prompt}"}
-            ]
-            
-            output = self.pipe(messages, max_new_tokens=int(98304))
-            content = output[0]['generated_text'][-1]['content']
-
-            # In production, we need to add better parsing to extract headers from the response
-            try:
-                import json
-                suggested_headers = json.loads(content)
-                row_headers = suggested_headers.get("row_headers", [])
-                column_headers = suggested_headers.get("column_headers", [])
-            except:
-                # Fallback
-                row_headers = ["Row 1", "Row 2", "Row 3"]
-                column_headers = ["Column 1", "Column 2", "Column 3"]
-                
-        # Then generate the table content
-        table_data = self.generate_table_content(prompt, 
-                                                row_headers=row_headers, 
-                                                column_headers=column_headers)
-        
-        # Combine headers and content to form complete table
-        full_table = []
-        
-        # Add column headers as first row if available
-        if column_headers:
             if row_headers:
-                # If we have both headers, add empty cell at top-left
-                full_table.append([""] + column_headers)
+                message += f"Row headers: {', '.join(row_headers)}\n"
+                message += f"Generate {cols} columns of appropriate content.\n"
+            elif column_headers:
+                message += f"Column headers: {', '.join(column_headers)}\n"
+                message += f"Generate {rows} rows of appropriate content.\n"
             else:
-                full_table.append(column_headers)
-                
-        # Add rows with row headers if available
-        if row_headers:
-            for i, row_data in enumerate(table_data):
-                if i < len(row_headers):
-                    full_table.append([row_headers[i]] + row_data)
-                else:
-                    full_table.append([""] + row_data)
-        else:
-            full_table.extend(table_data)
+                message += f"Generate a {rows}x{cols} table with appropriate content.\n"
+        
+        message += "\nFormat your response ONLY as a JSON array of arrays. No explanation text or markdown formatting."
+        message += "\nExample format: [[\"cell1\", \"cell2\"], [\"cell3\", \"cell4\"]]"
+        
+        messages = [
+            {"role": "system", "content": self.SYSTEM_PROMPT},
+            {"role": "user", "content": message}
+        ]
+        
+        # Get model response
+        try:
+            response = self.pipe(messages, max_new_tokens=max_new_tokens)
+            content = response[0]['generated_text'][-1]['content']
             
-        return full_table
-    
+            # Clean and extract JSON
+            clean_content = self._extract_json_array(content)
+            table_data = self._parse_json_content(clean_content, rows, cols)
+            
+            return table_data
+        except Exception as e:
+            print(f"Error generating table content: {e}")
+            # Return empty table as fallback
+            return [[""] * cols for _ in range(rows)]
+
+    def _extract_json_array(self, text: str) -> str:
+        """Extract JSON array from text with improved parsing"""
+        # Remove code block markers
+        text = re.sub(r'```(?:json)?\s*|\s*```', '', text)
+        
+        # Find outermost brackets containing valid JSON array
+        bracket_start = text.find('[')
+        if bracket_start == -1:
+            return '[[]]'  # Return valid empty JSON if no array found
+            
+        # Count brackets to find matching closing bracket
+        open_count = 0
+        for i in range(bracket_start, len(text)):
+            if text[i] == '[':
+                open_count += 1
+            elif text[i] == ']':
+                open_count -= 1
+                if open_count == 0:
+                    # Found matching brackets, extract content
+                    return text[bracket_start:i+1]
+        
+        # If no properly matched brackets found
+        return '[[]]'
+
+    def _parse_json_content(self, json_text: str, rows: int, cols: int) -> List[List[str]]:
+        """Parse JSON content into a properly dimensioned table"""
+        try:
+            # Try to parse as JSON
+            table_data = json.loads(json_text)
+            
+            # Ensure proper structure - should be list of lists
+            if not isinstance(table_data, list):
+                table_data = [[]]
+            elif table_data and not isinstance(table_data[0], list):
+                # If we got a flat array, convert it to 2D
+                table_data = [table_data]
+            
+            # Ensure we have correct dimensions
+            result = []
+            for i in range(min(rows, len(table_data))):
+                row = table_data[i]
+                if not isinstance(row, list):
+                    row = [str(row)]  # Convert non-list rows to list
+                
+                # Ensure each row has correct number of columns
+                new_row = []
+                for j in range(cols):
+                    if j < len(row):
+                        # Convert any value to string
+                        new_row.append(str(row[j]) if row[j] is not None else "")
+                    else:
+                        new_row.append("")  # Fill missing columns
+                
+                result.append(new_row)
+            
+            # Add any missing rows
+            while len(result) < rows:
+                result.append([""] * cols)
+            
+            return result
+            
+        except json.JSONDecodeError as e:
+            print(f"Failed to parse JSON response: {e}")
+            print(f"Problematic JSON text: {json_text}")
+            return [[""] * cols for _ in range(rows)]
+            
     def save_table_to_docx(self, table_data: List[List[str]], output_file: str,
                            intro_text: Optional[str] = None) -> None:
-        """
-        Save a table to a Word document with optional introduction paragraph.
-        
-        Args:
-            table_data (List[List[str]]): The table data as a list of lists.
-            output_file (str): The path to the output Word document.
-            intro_text (Optional[str]): Optional introduction paragraph.
-        """
+        """Save a table to a Word document with optional introduction paragraph."""
         doc = docx.Document()
 
         if intro_text:
@@ -251,7 +162,7 @@ class TableGenerator:
 
             for i, row in enumerate(table_data):
                 for j, cell in enumerate(row):
-                    if j < cols: # Ensure we don't exceed column count
+                    if j < cols:
                         table.cell(i, j).text = str(cell) if cell is not None else ""
 
         doc.save(output_file)
@@ -259,15 +170,7 @@ class TableGenerator:
 
     def save_table_to_file(self, table_data: List[List[str]], output_file: str,
                      intro_text: Optional[str] = None, as_pdf: bool = False) -> None:
-        """
-        Save a table to a Word document or PDF file with optional introduction paragraph.
-        
-        Args:
-            table_data (List[List[str]]): The table data as a list of lists.
-            output_file (str): The path to the output file.
-            intro_text (Optional[str]): Optional introduction paragraph.
-            as_pdf (bool): If True, save as PDF; if False, save as DOCX.
-        """
+        """Save a table to a Word document or PDF file with optional introduction paragraph."""
         doc = docx.Document()
 
         if intro_text:
@@ -297,6 +200,7 @@ class TableGenerator:
         
         if as_pdf:
             try:
+                from scripts.utils import convert_docx_to_pdf
                 convert_docx_to_pdf(temp_docx, output_file)
                 os.remove(temp_docx)
                 print(f"Table saved to {output_file}")
