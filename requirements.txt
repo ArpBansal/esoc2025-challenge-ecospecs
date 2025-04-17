@@ -42,7 +42,7 @@ google-auth==2.39.0
 googleapis-common-protos==1.70.0
 greenlet==3.2.0
 grpcio==1.72.0rc1
-grpcio-status==1.72.0rc1
+grpcio-status<1.72.0
 h11==0.14.0
 httpcore==1.0.8
 httptools==0.6.4
@@ -134,7 +134,8 @@ posthog==3.25.0
 prompt_toolkit==3.0.50
 propcache==0.3.1
 proto-plus==1.26.1
-protobuf==5.29.4
+# protobuf==5.29.4
+protobuf>=5.0,<6.0
 psutil==7.0.0
 ptyprocess==0.7.0
 pure_eval==0.2.3
