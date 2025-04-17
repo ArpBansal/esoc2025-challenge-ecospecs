@@ -57,7 +57,7 @@ Do not include any explanation, markdown formatting, or code blocks."""
         
         message += "\nFormat your response ONLY as a JSON array of arrays. No explanation text or markdown formatting."
         message += "\nExample format: [[\"cell1\", \"cell2\"], [\"cell3\", \"cell4\"]]"
-        
+        message += "\nRemember to only "
         messages = [
             {"role": "system", "content": self.SYSTEM_PROMPT},
             {"role": "user", "content": message}
@@ -67,11 +67,12 @@ Do not include any explanation, markdown formatting, or code blocks."""
         try:
             response = self.pipe(messages, max_new_tokens=max_new_tokens)
             content = response[0]['generated_text'][-1]['content']
-            
+            print("mannual content:\n", content)
             # Clean and extract JSON
             clean_content = self._extract_json_array(content)
+            print("clean content:\n", clean_content)
             table_data = self._parse_json_content(clean_content, rows, cols)
-            
+            print("table data:\n", table_data)
             return table_data
         except Exception as e:
             print(f"Error generating table content: {e}")
@@ -103,7 +104,7 @@ Do not include any explanation, markdown formatting, or code blocks."""
         return '[[]]'
 
     def _parse_json_content(self, json_text: str, rows: int, cols: int) -> List[List[str]]:
-        """Parse JSON content into a properly dimensioned table"""
+        """Parse JSON content into a properly dimensioned table."""
         try:
             # Try to parse as JSON
             table_data = json.loads(json_text)
@@ -115,35 +116,34 @@ Do not include any explanation, markdown formatting, or code blocks."""
                 # If we got a flat array, convert it to 2D
                 table_data = [table_data]
             
-            # Ensure we have correct dimensions
             result = []
+            # Determine actual number of columns from data if available
+            actual_cols = max([len(row) if isinstance(row, list) else 1 for row in table_data]) if table_data else cols
+            
             for i in range(min(rows, len(table_data))):
                 row = table_data[i]
                 if not isinstance(row, list):
                     row = [str(row)]  # Convert non-list rows to list
                 
-                # Ensure each row has correct number of columns
+                # For each row, use the actual number of columns in that row
+                # Don't add empty cells beyond what data actually has
                 new_row = []
-                for j in range(cols):
-                    if j < len(row):
-                        # Convert any value to string
-                        new_row.append(str(row[j]) if row[j] is not None else "")
-                    else:
-                        new_row.append("")  # Fill missing columns
+                for j in range(min(actual_cols, len(row))):
+                    # Convert any value to string
+                    new_row.append(str(row[j]) if row[j] is not None else "")
                 
                 result.append(new_row)
             
             # Add any missing rows
             while len(result) < rows:
-                result.append([""] * cols)
+                result.append([""] * actual_cols if result else [""] * cols)
             
             return result
             
         except json.JSONDecodeError as e:
             print(f"Failed to parse JSON response: {e}")
             print(f"Problematic JSON text: {json_text}")
-            return [[""] * cols for _ in range(rows)]
-            
+            return [[""] * cols for _ in range(rows)]        
     def save_table_to_docx(self, table_data: List[List[str]], output_file: str,
                            intro_text: Optional[str] = None) -> None:
         """Save a table to a Word document with optional introduction paragraph."""

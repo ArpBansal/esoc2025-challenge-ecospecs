@@ -8,4 +8,4 @@ Initial Model used:
     Or using GEMINI model via GEMINI API, but as use of open-source model is preferred. Proprietary model is avoided.
     128K - context window -> Qwen 2.5 models
 
-In high-vram environment, we can use like qwen QWQ-32B model.
+In high-vram available environment, we can use like qwen QWQ-32B model.
