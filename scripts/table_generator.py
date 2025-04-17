@@ -63,33 +63,30 @@ Do not include any explanation, markdown formatting, or code blocks."""
             {"role": "user", "content": message}
         ]
         
-        # Get model response
         try:
             response = self.pipe(messages, max_new_tokens=max_new_tokens)
             content = response[0]['generated_text'][-1]['content']
             print("mannual content:\n", content)
-            # Clean and extract JSON
+
             clean_content = self._extract_json_array(content)
             print("clean content:\n", clean_content)
+            
             table_data = self._parse_json_content(clean_content, rows, cols)
             print("table data:\n", table_data)
+            
             return table_data
         except Exception as e:
             print(f"Error generating table content: {e}")
-            # Return empty table as fallback
             return [[""] * cols for _ in range(rows)]
 
     def _extract_json_array(self, text: str) -> str:
         """Extract JSON array from text with improved parsing"""
-        # Remove code block markers
         text = re.sub(r'```(?:json)?\s*|\s*```', '', text)
         
-        # Find outermost brackets containing valid JSON array
         bracket_start = text.find('[')
         if bracket_start == -1:
-            return '[[]]'  # Return valid empty JSON if no array found
+            return '[[]]'
             
-        # Count brackets to find matching closing bracket
         open_count = 0
         for i in range(bracket_start, len(text)):
             if text[i] == '[':
@@ -100,41 +97,33 @@ Do not include any explanation, markdown formatting, or code blocks."""
                     # Found matching brackets, extract content
                     return text[bracket_start:i+1]
         
-        # If no properly matched brackets found
         return '[[]]'
 
     def _parse_json_content(self, json_text: str, rows: int, cols: int) -> List[List[str]]:
         """Parse JSON content into a properly dimensioned table."""
         try:
-            # Try to parse as JSON
             table_data = json.loads(json_text)
             
-            # Ensure proper structure - should be list of lists
             if not isinstance(table_data, list):
                 table_data = [[]]
             elif table_data and not isinstance(table_data[0], list):
-                # If we got a flat array, convert it to 2D
                 table_data = [table_data]
             
             result = []
-            # Determine actual number of columns from data if available
             actual_cols = max([len(row) if isinstance(row, list) else 1 for row in table_data]) if table_data else cols
             
             for i in range(min(rows, len(table_data))):
                 row = table_data[i]
                 if not isinstance(row, list):
-                    row = [str(row)]  # Convert non-list rows to list
+                    row = [str(row)]
                 
                 # For each row, use the actual number of columns in that row
-                # Don't add empty cells beyond what data actually has
                 new_row = []
                 for j in range(min(actual_cols, len(row))):
-                    # Convert any value to string
                     new_row.append(str(row[j]) if row[j] is not None else "")
                 
                 result.append(new_row)
             
-            # Add any missing rows
             while len(result) < rows:
                 result.append([""] * actual_cols if result else [""] * cols)
             
@@ -189,10 +178,8 @@ Do not include any explanation, markdown formatting, or code blocks."""
                     if j < cols:
                         table.cell(i, j).text = str(cell) if cell is not None else ""
 
-        # Save as DOCX first
         temp_docx = output_file
         if as_pdf:
-            # If PDF requested, save to temp DOCX file first
             base_name = os.path.splitext(output_file)[0]
             temp_docx = f"{base_name}_temp.docx"
 

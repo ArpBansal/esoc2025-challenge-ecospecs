@@ -17,22 +17,19 @@ def test_table_generator():
         column_headers=column_headers
     )
     
-    # Print table for debugging
     print("\nGenerated Planet Table:")
     for row in table:
         print(row)
     
-    # Format the table with headers for saving
-    full_table = [["Planet"] + column_headers]  # Add header row with meaningful first cell
+    full_table = [["Planet"] + column_headers]
     
     for i, row in enumerate(row_headers):
         if i < len(table):
             full_table.append([row] + table[i])
     
-    # Save table to document with appropriate description
     generator.save_table_to_docx(
         full_table,
-        "planet_data.docx",
+        "planet_data_mannual_headers.docx",
         "Solar System Planets - Physical Properties"
     )
     print("Planet data table saved to 'planet_data.docx'.")
@@ -61,7 +58,7 @@ def test_table_generator():
     
     generator.save_table_to_docx(
         full_table,
-        "programming_languages.docx",
+        "programming_languages_mannual_headers.docx",
         "Comparison of Popular Programming Languages"
     )
     print("Programming languages table saved to 'programming_languages.docx'.")

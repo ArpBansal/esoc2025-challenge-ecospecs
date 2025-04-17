@@ -25,30 +25,30 @@ class AdvancedTableGenerator:
         )
         
         self.SYSTEM_PROMPT = """You are a table generation assistant that creates table content in JSON format.
-Return ONLY valid JSON with no additional text or formatting.
-For table structure requests, return a JSON object with 'row_headers', 'column_headers', and 'data' keys.
-For table content requests, return a JSON array of arrays representing rows of data."""
+        Return ONLY valid JSON with no additional text or formatting.
+        For table structure requests, return a JSON object with 'row_headers', 'column_headers', and 'data' keys.
+        For table content requests, return a JSON array of arrays representing rows of data."""
         
     def generate_table_structure(self, prompt: str, max_new_tokens: int = 2048) -> Dict:
         """Generate both row and column headers for a table based on a prompt"""
         message = f"""Create an appropriate table structure for: {prompt}
         
-Generate row headers and column headers that would make sense for this type of table.
-Return a JSON object with the keys:
-- 'row_headers': an array of row headers
-- 'column_headers': an array of column headers
-- 'num_rows': suggested number of rows (between 3-10)
-- 'num_cols': suggested number of columns (between 3-8)
+        Generate row headers and column headers that would make sense for this type of table.
+        Return a JSON object with the keys:
+        - 'row_headers': an array of row headers
+        - 'column_headers': an array of column headers
+        - 'num_rows': suggested number of rows (between 3-10)
+        - 'num_cols': suggested number of columns (between 3-8)
 
-Example format:
-{{
-  "row_headers": ["Item 1", "Item 2", "Item 3"],
-  "column_headers": ["Property 1", "Property 2", "Property 3"],
-  "num_rows": 3,
-  "num_cols": 3
-}}
+        Example format:
+        {{
+        "row_headers": ["Item 1", "Item 2", "Item 3"],
+        "column_headers": ["Property 1", "Property 2", "Property 3"],
+        "num_rows": 3,
+        "num_cols": 3
+        }}
 
-Only return valid JSON with no additional text."""
+        Only return valid JSON with no additional text."""
         
         messages = [
             {"role": "system", "content": self.SYSTEM_PROMPT},
@@ -59,18 +59,16 @@ Only return valid JSON with no additional text."""
             response = self.pipe(messages, max_new_tokens=max_new_tokens)
             content = response[0]['generated_text'][-1]['content']
             
-            # Clean and extract JSON
             clean_content = self._extract_json_object(content)
             structure = json.loads(clean_content)
             
-            # Validate structure has required fields
             if not all(key in structure for key in ['row_headers', 'column_headers']):
                 raise ValueError("Generated structure missing required fields")
                 
             return structure
         except Exception as e:
             print(f"Error generating table structure: {e}")
-            # Return default structure
+
             return {
                 "row_headers": ["Row 1", "Row 2", "Row 3", "Row 4", "Row 5"],
                 "column_headers": ["Column 1", "Column 2", "Column 3"],
@@ -107,10 +105,10 @@ The introduction should be 2-4 sentences, professional in tone, and explain what
                             num_rows: int = 5,
                             num_cols: int = 3) -> List[List[str]]:
         """Generate content for a table based on row/column headers"""
+
         rows = len(row_headers) if row_headers else num_rows
         cols = len(column_headers) if column_headers else num_cols
         
-        # Create an explicit prompt
         message = f"Generate content for a table about: {prompt}\n\n"
         
         if row_headers and column_headers:
@@ -139,19 +137,17 @@ The introduction should be 2-4 sentences, professional in tone, and explain what
             response = self.pipe(messages, max_new_tokens=max_new_tokens)
             content = response[0]['generated_text'][-1]['content']
             
-            # Clean and extract JSON
             clean_content = self._extract_json_array(content)
             table_data = self._parse_json_content(clean_content, rows, cols)
             
             return table_data
         except Exception as e:
             print(f"Error generating table content: {e}")
-            # Return empty table as fallback
             return [[""] * cols for _ in range(rows)]
 
     def generate_complete_table(self, prompt: str, max_new_tokens: int = 4096) -> Tuple[Dict, List[List[str]], str]:
         """Generate a complete table including structure, content, and introduction paragraph"""
-        # First, generate table structure
+
         print("Generating table structure...")
         structure = self.generate_table_structure(prompt, max_new_tokens)
         
@@ -160,7 +156,6 @@ The introduction should be 2-4 sentences, professional in tone, and explain what
         num_rows = len(row_headers)
         num_cols = len(column_headers)
         
-        # Next, generate table content
         print("Generating table content...")
         content = self.generate_table_content(
             prompt, 
@@ -171,23 +166,19 @@ The introduction should be 2-4 sentences, professional in tone, and explain what
             num_cols
         )
         
-        # Generate introduction paragraph
         print("Generating introduction paragraph...")
         intro = self.generate_intro_paragraph(prompt, structure)
         
         return structure, content, intro
 
     def _extract_json_array(self, text: str) -> str:
-        """Extract JSON array from text with improved parsing"""
-        # Remove code block markers
+        """Extract JSON array from text"""
         text = re.sub(r'```(?:json)?\s*|\s*```', '', text)
         
-        # Find outermost brackets containing valid JSON array
         bracket_start = text.find('[')
         if bracket_start == -1:
-            return '[[]]'  # Return valid empty JSON if no array found
+            return '[[]]'
             
-        # Count brackets to find matching closing bracket
         open_count = 0
         for i in range(bracket_start, len(text)):
             if text[i] == '[':
@@ -195,7 +186,6 @@ The introduction should be 2-4 sentences, professional in tone, and explain what
             elif text[i] == ']':
                 open_count -= 1
                 if open_count == 0:
-                    # Found matching brackets, extract content
                     return text[bracket_start:i+1]
         
         # If no properly matched brackets found
@@ -203,15 +193,12 @@ The introduction should be 2-4 sentences, professional in tone, and explain what
         
     def _extract_json_object(self, text: str) -> str:
         """Extract JSON object from text"""
-        # Remove code block markers
         text = re.sub(r'```(?:json)?\s*|\s*```', '', text)
         
-        # Find outermost braces containing valid JSON object
         brace_start = text.find('{')
         if brace_start == -1:
             return '{"row_headers":[],"column_headers":[],"num_rows":5,"num_cols":3}'
             
-        # Count braces to find matching closing brace
         open_count = 0
         for i in range(brace_start, len(text)):
             if text[i] == '{':
@@ -219,7 +206,6 @@ The introduction should be 2-4 sentences, professional in tone, and explain what
             elif text[i] == '}':
                 open_count -= 1
                 if open_count == 0:
-                    # Found matching braces, extract content
                     return text[brace_start:i+1]
         
         # If no properly matched braces found
@@ -228,35 +214,28 @@ The introduction should be 2-4 sentences, professional in tone, and explain what
     def _parse_json_content(self, json_text: str, rows: int, cols: int) -> List[List[str]]:
         """Parse JSON content into a properly dimensioned table"""
         try:
-            # Try to parse as JSON
             table_data = json.loads(json_text)
             
-            # Ensure proper structure - should be list of lists
             if not isinstance(table_data, list):
                 table_data = [[]]
             elif table_data and not isinstance(table_data[0], list):
-                # If we got a flat array, convert it to 2D
                 table_data = [table_data]
             
-            # Ensure we have correct dimensions
             result = []
             for i in range(min(rows, len(table_data))):
                 row = table_data[i]
                 if not isinstance(row, list):
-                    row = [str(row)]  # Convert non-list rows to list
+                    row = [str(row)]
                 
-                # Ensure each row has correct number of columns
                 new_row = []
                 for j in range(cols):
                     if j < len(row):
-                        # Convert any value to string
                         new_row.append(str(row[j]) if row[j] is not None else "")
                     else:
-                        new_row.append("")  # Fill missing columns
+                        new_row.append("")
                 
                 result.append(new_row)
             
-            # Add any missing rows
             while len(result) < rows:
                 result.append([""] * cols)
             
@@ -273,13 +252,12 @@ The introduction should be 2-4 sentences, professional in tone, and explain what
         """Save a table to a Word document with optional introduction paragraph and title"""
         doc = docx.Document()
 
-        # Add title if provided
         if table_title:
             doc.add_heading(table_title, level=1)
             
         if intro_text:
             doc.add_paragraph(intro_text)
-            doc.add_paragraph()  # Add space after intro
+            doc.add_paragraph()
         
         rows = len(table_data)
         cols = len(table_data[0]) if rows > 0 else 0
@@ -303,7 +281,6 @@ The introduction should be 2-4 sentences, professional in tone, and explain what
         """Save a table to a Word document or PDF file with optional introduction paragraph"""
         doc = docx.Document()
 
-        # Add title if provided
         if table_title:
             doc.add_heading(table_title, level=1)
             
@@ -323,10 +300,8 @@ The introduction should be 2-4 sentences, professional in tone, and explain what
                     if j < cols:
                         table.cell(i, j).text = str(cell) if cell is not None else ""
 
-        # Save as DOCX first
         temp_docx = output_file
         if as_pdf:
-            # If PDF requested, save to temp DOCX file first
             base_name = os.path.splitext(output_file)[0]
             temp_docx = f"{base_name}_temp.docx"
 
@@ -356,8 +331,7 @@ The introduction should be 2-4 sentences, professional in tone, and explain what
         row_headers = structure.get('row_headers', [])
         column_headers = structure.get('column_headers', [])
         
-        # Format table with headers
-        formatted_table = [[""] + column_headers]  # First cell empty, then column headers
+        formatted_table = [[""] + column_headers]
         
         for i, header in enumerate(row_headers):
             if i < len(content):
@@ -365,11 +339,9 @@ The introduction should be 2-4 sentences, professional in tone, and explain what
             else:
                 formatted_table.append([header] + [""] * len(column_headers))
         
-        # Generate title if not provided
         if not table_title:
             table_title = f"Table: {prompt.capitalize()}"
             
-        # Save to file
         self.save_table_to_file(
             formatted_table,
             output_file,

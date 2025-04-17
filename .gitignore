@@ -176,3 +176,4 @@ cython_debug/
 # config file
 *.json
 scripts.ipynb
+scripts/main.py

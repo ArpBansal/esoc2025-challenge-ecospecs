@@ -2,7 +2,6 @@ import os
 from scripts.table_generator_adv import AdvancedTableGenerator
 
 def test_advanced_table_generator():
-    # Initialize table generator with model path
     generator = AdvancedTableGenerator(model_path="Qwen/Qwen2.5-7B-Instruct-AWQ")
     
     # Test 1: Generate complete table from scratch
@@ -29,23 +28,19 @@ def test_advanced_table_generator():
         column_headers=column_headers
     )
     
-    # Print generated content
     print("\nGenerated XKCD-inspired table content:")
     for i, row in enumerate(table_content):
         print(f"{row_headers[i]}: {row}")
     
-    # Format table for saving with headers
     formatted_table = [["Product"] + column_headers]
     for i, header in enumerate(row_headers):
         formatted_table.append([header] + table_content[i])
     
-    # Generate intro paragraph
     intro = generator.generate_intro_paragraph(prompt, {
         "row_headers": row_headers,
         "column_headers": column_headers
     })
     
-    # Save to document with intro
     generator.save_table_to_docx(
         formatted_table,
         "xkcd_products.docx",
